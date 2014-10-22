@@ -1,23 +1,53 @@
 #!/usr/bin/ruby
 require 'yaml'
 require 'json'
+require 'pathname'
 require 'net/http'
 require 'pp'
 
-class RestClient
-  def initialize(base_uri)
-    @base_uri = base_uri
+class Client < Struct.new(:base_uri, :token, :name, :parent)
+  class Repo
+    def initialize(dir, data)
+      @data = data
+      @dir = dir + name
+    end
+
+    def name; @data['name']; end
+
+    def backup
+      puts "Backing up #@dir"
+      @dir.mkpath
+
+      backup_git
+      backup_extras
+
+      exit # FIXME
+    end
+
+    def backup_extras; end
+    def backup_git
+      ENV['GIT_SSH'] = Pathname.pwd.join('sshwrap.sh').realpath.to_s
+      out = @dir + 'repo.git'
+      if out.exist?
+        system('git', '-C', out.to_s, 'remote', 'update')
+      else
+        system('git', 'clone', '--mirror', ssh_uri, out.to_s)
+      end
+    end
   end
 
-  def self.create(type, token)
-    klass = case type
+  def self.create(user, parent)
+    klass = case user['type']
       when 'github' then GitHub
       when 'gitlab' then GitLab
     end or raise "Don't know about type #{type}"
-    klass.new(token)
+    klass.new(user['token'], user['id'], parent)
   end
 
-  def headers; []; end
+  def initialize(*args)
+    super
+    @dir = Pathname.new(parent) + name
+  end
 
   def fetch(uri)
     uri = URI(uri)
@@ -33,35 +63,38 @@ class RestClient
       when Net::HTTPSuccess then
         return JSON.parse(resp.body)
       else
-        raise "Failed to fetch #{path}: #{resp}"
+        raise "Failed to fetch #{uri}: #{resp}"
       end
     end
   end
 
   def get(path)
-    return fetch(File.join(@base_uri, path))
+    return fetch(File.join(base_uri, path))
   end
 
+  def headers; []; end
+
   def repos
-    repo_data.map { |r| self.class.const_get(:Repo).new(r) }
+    repo_data.map { |r| self.class.const_get(:Repo).new(@dir, r) }
+  end
+
+  def backup
+    repos.each { |r| r.backup }
   end
 end
 
-class GitHub < RestClient
+class GitHub < Client
   BaseURI = 'https://api.github.com'
-
-  class Repo < Struct.new(:data)
-    def name; data['name']; end
-    def ssh_uri; data['ssh_url']; end
+  def initialize(*args)
+    super(BaseURI, *args)
   end
 
-  def initialize(token)
-    @token = token
-    super(BaseURI)
+  class Repo < Client::Repo
+    def ssh_uri; @data['ssh_url']; end
   end
 
   def headers
-    { 'Authorization' => "token #@token" }
+    { 'Authorization' => "token #{token}" }
   end
 
   def repo_data
@@ -70,21 +103,18 @@ class GitHub < RestClient
   end
 end
 
-class GitLab < RestClient
+class GitLab < Client
   BaseURI = 'http://gitlab.com/api/v3'
-
-  class Repo < Struct.new(:data)
-    def name; data['name']; end
-    def ssh_uri; data['ssh_url_to_repo']; end
+  def initialize(*args)
+    super(BaseURI, *args)
   end
 
-  def initialize(token)
-    @token = token
-    super(BaseURI)
+  class Repo < Client::Repo
+    def ssh_uri; @data['ssh_url_to_repo']; end
   end
 
   def headers
-    { 'PRIVATE-TOKEN' => @token }
+    { 'PRIVATE-TOKEN' => token }
   end
 
   def repo_data
@@ -92,9 +122,6 @@ class GitLab < RestClient
   end
 end
 
+BackupDir = 'backup'
 config = YAML.load(open('config.yaml'))
-config.each do |user|
-  id = user['id']
-  client = RestClient.create(user['type'], user['token'])
-  pp client.repos.map { |r| r.ssh_uri }
-end
+config.each { |user| Client.create(user, BackupDir).backup }
