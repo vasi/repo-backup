@@ -276,9 +276,9 @@ class RepoBackup
   end
 end
 
-
+config, key, outdir = *ARGV
 RepoBackup.new(
-  outdir: 'backup',
-  config: 'config.yaml',
-  private_key: 'key'
+  outdir: outdir,
+  config: config,
+  private_key: key
 ).backup
