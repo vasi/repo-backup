@@ -62,7 +62,7 @@ class Source < Struct.new(:backup, :spec)
 
     # Backup this repo
     def backup
-      puts "Backing up #{id}"
+      RepoBackup.log("Backing up #{id}")
       dir.mkpath
 
       backup_git
@@ -217,6 +217,11 @@ end
 # A manager for the backup process
 class RepoBackup
   attr_reader :dir, :config, :git
+
+  def self.log(msg)
+    msg = "\033[1m" + msg + "\033[0m" if $stdout.isatty
+    puts msg
+  end
 
   def initialize(**opts)
     @dir = Pathname.new(opts[:outdir])
