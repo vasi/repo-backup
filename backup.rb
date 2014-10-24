@@ -28,8 +28,16 @@ EOF
   end
 
   def run(args, **opts)
+    params = {}
+    params.merge!({out: :close, err: :close}) if opts[:quiet]
+
     ssh_wrap
-    system('git', *args)
+    system('git', *args, params)
+  end
+
+  # Check if a repo exists
+  def check_remote(uri)
+    return run(['ls-remote', '-h', uri], :quiet => true)
   end
 end
 
@@ -40,6 +48,7 @@ class Source < Struct.new(:backup, :spec)
     RepoName = 'repo.git'
 
     def name; spec['name']; end
+    def git; source.git; end
 
     # Should be a unique ID for this repo
     def id
@@ -60,17 +69,15 @@ class Source < Struct.new(:backup, :spec)
       backup_extras
     end
 
-    # Forward git to source
-    def git(*args); source.git(*args); end
-
     # Backup the git repository
-    def backup_git(uri = nil, out = RepoName)
+    def backup_git(uri = nil, dest = nil)
       uri ||= ssh_uri
-      repo = dir + out
-      if repo.exist?
-        git(['-C', repo.to_s, 'fetch', '--all', '--quiet'])
+      dest ||= dir + RepoName
+
+      if dest.exist?
+        git.run(['-C', dest.to_s, 'fetch', '--all', '--quiet'])
       else
-        git(['clone', '--mirror', uri, repo.to_s])
+        git.run(['clone', '--mirror', uri, dest.to_s])
       end
     end
 
@@ -94,6 +101,9 @@ class Source < Struct.new(:backup, :spec)
 
   # The name of this source
   def name; spec['name']; end
+
+  # Forward git
+  def git; backup.git; end
 
   # Where this source's backup should go
   def dir
@@ -131,9 +141,6 @@ class Source < Struct.new(:backup, :spec)
     repo_data.map { |r| self.class.const_get(:Repo).new(self, r) }
   end
 
-  # Forward git commands to backup object
-  def git(*args); backup.git(*args); end
-
   ### SUBCLASS
   # Headers to add to each request
   def headers; []; end
@@ -167,8 +174,14 @@ class GitHub < Source
 
     def backup_wiki
       return unless spec['has_wiki']
+
+      # Sometimes the wiki is turned on, but uninitialized
+      # Check if repo exists
+      dest = dir + WikiName
       uri = ssh_uri.sub(/(\.git)$/, '.wiki\1')
-      backup_git(uri, WikiName)
+      if dest.exist? || git.check_remote(uri)
+        backup_git(uri, dest)
+      end
     end
 
     def backup_extras
@@ -203,16 +216,13 @@ end
 
 # A manager for the backup process
 class RepoBackup
-  attr_reader :dir, :config
+  attr_reader :dir, :config, :git
 
   def initialize(**opts)
     @dir = Pathname.new(opts[:outdir])
     @config = open(opts[:config]) { |f| YAML.load(f) }
     @git = Git.new(@dir, opts[:private_key])
   end
-
-  # Run git
-  def git(*args); @git.run(*args); end
 
   # Get all sources
   def sources
