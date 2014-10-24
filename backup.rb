@@ -51,6 +51,7 @@ class Source < Struct.new(:backup, :spec)
       source.dir + name
     end
 
+    # Backup this repo
     def backup
       puts "Backing up #{id}"
       dir.mkpath
@@ -61,6 +62,7 @@ class Source < Struct.new(:backup, :spec)
       exit # FIXME
     end
 
+    # Backup the git repository
     def backup_git
       @repo = dir + RepoName
       if @repo.exist?
@@ -68,6 +70,13 @@ class Source < Struct.new(:backup, :spec)
       else
         source.git('clone', '--mirror', ssh_uri, @repo.to_s)
       end
+    end
+
+    # Fetch a URI, and write the contents to disk
+    def save(file, uri)
+      data = source.get(uri)
+      json = JSON.pretty_generate(data)
+      dir.join(file).open('w') { |f| f.puts(json) }
     end
   end
 
@@ -146,6 +155,16 @@ class GitHub < Source
 
   class Repo < Source::Repo
     def ssh_uri; spec['ssh_url']; end
+    def fullname; spec['full_name']; end
+
+    def save(file, path)
+      super(file, "repos/#{fullname}/#{path}")
+    end
+
+    def backup_extras
+      save('issues', 'issues')
+      save('issues-comments', 'issues/comments')
+    end
   end
 
   def repo_data
