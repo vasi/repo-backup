@@ -27,7 +27,7 @@ EOF
     ENV['GIT_SSH'] = File.realpath(@wrapper.path)
   end
 
-  def run(args, **opts)
+  def run(args, opts = {})
     params = {}
     params.merge!({out: :close, err: :close}) if opts[:quiet]
 
@@ -228,7 +228,7 @@ class RepoBackup
     puts msg
   end
 
-  def initialize(**opts)
+  def initialize(opts)
     @dir = Pathname.new(opts[:outdir])
     @config = open(opts[:config]) { |f| YAML.load(f) }
     @git = Git.new(@dir, opts[:private_key])
