@@ -62,9 +62,7 @@ class Source < Struct.new(:backup, :spec)
 
     # Backup this repo
     def backup
-      RepoBackup.log("Backing up #{id}")
       dir.mkpath
-
       backup_git
       backup_extras
     end
@@ -138,7 +136,8 @@ class Source < Struct.new(:backup, :spec)
 
   # Get a list of repo objects in this source
   def repos
-    repo_data.map { |r| self.class.const_get(:Repo).new(self, r) }
+    repo_data.map { |r| self.class.const_get(:Repo).new(self, r) }.
+      sort_by(&:name)
   end
 
   ### SUBCLASS
@@ -207,6 +206,7 @@ class GitLab < Source
 
   class Repo < Source::Repo
     def ssh_uri; spec['ssh_url_to_repo']; end
+    def name; spec['path']; end
   end
 
   def repo_data
@@ -261,7 +261,11 @@ class RepoBackup
   # Do a backup
   def backup
     lock do
-      repos.each { |r| r.backup }
+      RepoBackup.log "Fetching repo info"
+      repos.each do |repo|
+        RepoBackup.log "Backing up #{repo.id}"
+        repo.backup
+      end
     end
   end
 end
