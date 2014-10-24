@@ -63,12 +63,13 @@ class Source < Struct.new(:backup, :spec)
     end
 
     # Backup the git repository
-    def backup_git
-      @repo = dir + RepoName
-      if @repo.exist?
-        source.git('-C', @repo.to_s, 'remote', 'update')
+    def backup_git(uri = nil, out = RepoName)
+      uri ||= ssh_uri
+      repo = dir + out
+      if repo.exist?
+        source.git('-C', repo.to_s, 'fetch', '--all', '--quiet')
       else
-        source.git('clone', '--mirror', ssh_uri, @repo.to_s)
+        source.git('clone', '--mirror', uri, repo.to_s)
       end
     end
 
@@ -154,6 +155,8 @@ class GitHub < Source
   end
 
   class Repo < Source::Repo
+    WikiName = 'wiki.git'
+
     def ssh_uri; spec['ssh_url']; end
     def fullname; spec['full_name']; end
 
@@ -161,7 +164,14 @@ class GitHub < Source
       super(file, "repos/#{fullname}/#{path}")
     end
 
+    def backup_wiki
+      return unless spec['has_wiki']
+      uri = ssh_uri.sub(/(\.git)$/, '.wiki\1')
+      backup_git(uri, WikiName)
+    end
+
     def backup_extras
+      backup_wiki
       save('issues', 'issues')
       save('issues-comments', 'issues/comments')
     end
