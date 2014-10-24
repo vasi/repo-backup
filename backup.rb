@@ -27,7 +27,7 @@ EOF
     ENV['GIT_SSH'] = File.realpath(@wrapper.path)
   end
 
-  def run(*args)
+  def run(args, **opts)
     ssh_wrap
     system('git', *args)
   end
@@ -60,14 +60,17 @@ class Source < Struct.new(:backup, :spec)
       backup_extras
     end
 
+    # Forward git to source
+    def git(*args); source.git(*args); end
+
     # Backup the git repository
     def backup_git(uri = nil, out = RepoName)
       uri ||= ssh_uri
       repo = dir + out
       if repo.exist?
-        source.git('-C', repo.to_s, 'fetch', '--all', '--quiet')
+        git(['-C', repo.to_s, 'fetch', '--all', '--quiet'])
       else
-        source.git('clone', '--mirror', uri, repo.to_s)
+        git(['clone', '--mirror', uri, repo.to_s])
       end
     end
 
@@ -223,6 +226,7 @@ class RepoBackup
 
   # Ensure we're locked
   def lock(&block)
+    dir.mkpath
     lockfile = dir.join('lock')
     lockfile.open('w') do |f|
       unless f.flock(File::LOCK_EX | File::LOCK_NB)
