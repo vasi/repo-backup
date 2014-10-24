@@ -2,21 +2,58 @@
 require 'yaml'
 require 'json'
 require 'pathname'
+require 'tempfile'
 require 'net/http'
 require 'pp'
 
-class Client < Struct.new(:base_uri, :token, :name, :parent)
-  class Repo
-    def initialize(dir, data)
-      @data = data
-      @dir = dir + name
+# Wrap git, so we can use a custom SSH key
+class Git < Struct.new(:dir, :private_key)
+  def keypath
+    File.realpath(private_key)
+  end
+
+  # Setup a wrapper, if it doesn't already exist
+  def ssh_wrap
+    return if !private_key
+    unless @wrapper
+      @wrapper = Tempfile.new(['.sshwrap', '.sh'], dir)
+      @wrapper.chmod(0500) # read/execute
+      @wrapper.write <<-EOF
+#!/bin/sh
+exec ssh -i #{keypath} "$@"
+EOF
+      @wrapper.close
+    end
+    ENV['GIT_SSH'] = File.realpath(@wrapper.path)
+  end
+
+  def run(*args)
+    ssh_wrap
+    system('git', *args)
+  end
+end
+
+# A source of repos to backup
+class Source < Struct.new(:backup, :spec)
+  # A repo to be backed up
+  class Repo < Struct.new(:source, :spec)
+    RepoName = 'repo.git'
+
+    def name; spec['name']; end
+
+    # Should be a unique ID for this repo
+    def id
+      "#{source.name}/#{name}"
     end
 
-    def name; @data['name']; end
+    # Where the backup should go
+    def dir
+      source.dir + name
+    end
 
     def backup
-      puts "Backing up #@dir"
-      @dir.mkpath
+      puts "Backing up #{id}"
+      dir.mkpath
 
       backup_git
       backup_extras
@@ -24,31 +61,35 @@ class Client < Struct.new(:base_uri, :token, :name, :parent)
       exit # FIXME
     end
 
-    def backup_extras; end
     def backup_git
-      ENV['GIT_SSH'] = Pathname.pwd.join('sshwrap.sh').realpath.to_s
-      out = @dir + 'repo.git'
-      if out.exist?
-        system('git', '-C', out.to_s, 'remote', 'update')
+      @repo = dir + RepoName
+      if @repo.exist?
+        source.git('-C', @repo.to_s, 'remote', 'update')
       else
-        system('git', 'clone', '--mirror', ssh_uri, out.to_s)
+        source.git('clone', '--mirror', ssh_uri, @repo.to_s)
       end
     end
   end
 
-  def self.create(user, parent)
-    klass = case user['type']
+  # Factory for creating sources from a spec
+  def self.create(backup, spec)
+    type = spec['type']
+    klass = case type
       when 'github' then GitHub
       when 'gitlab' then GitLab
     end or raise "Don't know about type #{type}"
-    klass.new(user['token'], user['id'], parent)
+    klass.new(backup, spec)
   end
 
-  def initialize(*args)
-    super
-    @dir = Pathname.new(parent) + name
+  # The name of this source
+  def name; spec['name']; end
+
+  # Where this source's backup should go
+  def dir
+    backup.dir + name
   end
 
+  # Fetch a full URI, handling redirects
   def fetch(uri)
     uri = URI(uri)
     req = Net::HTTP::Get.new(uri)
@@ -67,34 +108,44 @@ class Client < Struct.new(:base_uri, :token, :name, :parent)
       end
     end
   end
+  private :fetch
 
+  # GET a REST API path
   def get(path)
     return fetch(File.join(base_uri, path))
   end
 
-  def headers; []; end
-
+  # Get a list of repo objects in this source
   def repos
-    repo_data.map { |r| self.class.const_get(:Repo).new(@dir, r) }
+    repo_data.map { |r| self.class.const_get(:Repo).new(self, r) }
   end
 
-  def backup
-    repos.each { |r| r.backup }
+  # Forward git commands to backup object
+  def git(*args); backup.git(*args); end
+
+  ### SUBCLASS
+  # Headers to add to each request
+  def headers; []; end
+  # Get a spec structure for each repo in this source
+  def repo_data; []; end
+  class Repo
+    # Backup extra things, after the git repo itself
+    def backup_extras; end
+    # Get the ssh URI for this repo
+    def ssh_uri; end
   end
 end
 
-class GitHub < Client
-  BaseURI = 'https://api.github.com'
-  def initialize(*args)
-    super(BaseURI, *args)
+class GitHub < Source
+  def base_uri
+    'https://api.github.com'
   end
-
-  class Repo < Client::Repo
-    def ssh_uri; @data['ssh_url']; end
-  end
-
   def headers
-    { 'Authorization' => "token #{token}" }
+    { 'Authorization' => "token #{spec['token']}" }
+  end
+
+  class Repo < Source::Repo
+    def ssh_uri; spec['ssh_url']; end
   end
 
   def repo_data
@@ -103,18 +154,16 @@ class GitHub < Client
   end
 end
 
-class GitLab < Client
-  BaseURI = 'http://gitlab.com/api/v3'
-  def initialize(*args)
-    super(BaseURI, *args)
+class GitLab < Source
+  def base_uri
+    'http://gitlab.com/api/v3'
   end
-
-  class Repo < Client::Repo
-    def ssh_uri; @data['ssh_url_to_repo']; end
-  end
-
   def headers
-    { 'PRIVATE-TOKEN' => token }
+    { 'PRIVATE-TOKEN' => spec['token'] }
+  end
+
+  class Repo < Source::Repo
+    def ssh_uri; spec['ssh_url_to_repo']; end
   end
 
   def repo_data
@@ -122,6 +171,38 @@ class GitLab < Client
   end
 end
 
-BackupDir = 'backup'
-config = YAML.load(open('config.yaml'))
-config.each { |user| Client.create(user, BackupDir).backup }
+# A manager for the backup process
+class RepoBackup
+  attr_reader :dir, :config
+
+  def initialize(**opts)
+    @dir = Pathname.new(opts[:outdir])
+    @config = open(opts[:config]) { |f| YAML.load(f) }
+    @git = Git.new(@dir, opts[:private_key])
+  end
+
+  # Run git
+  def git(*args); @git.run(*args); end
+
+  # Get all sources
+  def sources
+    @config.map { |spec| Source.create(self, spec) }
+  end
+
+  # Get all repos
+  def repos
+    sources.map { |src| src.repos }.flatten(1)
+  end
+
+  # Do a backup
+  def backup
+    repos.each { |r| r.backup }
+  end
+end
+
+
+RepoBackup.new(
+  outdir: 'backup',
+  config: 'config.yaml',
+  private_key: 'key'
+).backup
