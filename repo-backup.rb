@@ -32,7 +32,13 @@ EOF
     params.merge!({out: :close, err: :close}) if opts[:quiet]
 
     ssh_wrap
-    system('git', *args, params)
+    origpwd = File.realpath(Dir.pwd)
+    begin
+      Dir.chdir(opts[:dir]) if opts[:dir]
+      system('git', *args, params)
+    ensure
+      Dir.chdir(origpwd)
+    end
   end
 
   # Check if a repo exists
@@ -74,7 +80,7 @@ class Source < Struct.new(:backup, :spec)
       dest ||= dir + RepoName
 
       if dest.exist?
-        git.run(['-C', dest.to_s, 'fetch', '--all', '--quiet'])
+        git.run(['fetch', '--all', '--quiet'], :dir => dest)
       else
         git.run(['clone', '--mirror', uri, dest.to_s])
       end
