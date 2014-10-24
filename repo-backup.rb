@@ -286,5 +286,5 @@ config, key, outdir = *ARGV
 RepoBackup.new(
   outdir: outdir,
   config: config,
-  private_key: key
+  private_key: key.empty? ? nil : key
 ).backup
