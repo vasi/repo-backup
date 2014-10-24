@@ -63,6 +63,7 @@ class Source < Struct.new(:backup, :spec)
     # Backup this repo
     def backup
       dir.mkpath
+      save('spec.json', spec)
       backup_git
       backup_extras
     end
@@ -79,11 +80,15 @@ class Source < Struct.new(:backup, :spec)
       end
     end
 
+    # Write some data to disk
+    def save(file, data)
+      data = JSON.pretty_generate(data) unless String === data
+      dir.join(file).open('w') { |f| f.puts(data) }
+    end
+
     # Fetch a URI, and write the contents to disk
-    def save(file, uri)
-      data = source.get(uri)
-      json = JSON.pretty_generate(data)
-      dir.join(file).open('w') { |f| f.puts(json) }
+    def fetch(file, uri)
+      save(file, source.get(uri))
     end
   end
 
@@ -167,7 +172,7 @@ class GitHub < Source
     def ssh_uri; spec['ssh_url']; end
     def fullname; spec['full_name']; end
 
-    def save(file, path)
+    def fetch(file, path)
       super(file, "repos/#{fullname}/#{path}")
     end
 
@@ -185,8 +190,8 @@ class GitHub < Source
 
     def backup_extras
       backup_wiki
-      save('issues', 'issues')
-      save('issues-comments', 'issues/comments')
+      fetch('issues.json', 'issues')
+      fetch('issues-comments.json', 'issues/comments')
     end
   end
 
