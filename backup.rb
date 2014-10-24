@@ -58,8 +58,6 @@ class Source < Struct.new(:backup, :spec)
 
       backup_git
       backup_extras
-
-      exit # FIXME
     end
 
     # Backup the git repository
@@ -223,9 +221,29 @@ class RepoBackup
     sources.map { |src| src.repos }.flatten(1)
   end
 
+  # Ensure we're locked
+  def lock(&block)
+    lockfile = dir.join('lock')
+    lockfile.open('w') do |f|
+      unless f.flock(File::LOCK_EX | File::LOCK_NB)
+        puts "repo-backup is already running!"
+        exit(1)
+      end
+
+      begin
+        block.()
+      ensure
+        lockfile.unlink
+      end
+    end
+  end
+  private :lock
+
   # Do a backup
   def backup
-    repos.each { |r| r.backup }
+    lock do
+      repos.each { |r| r.backup }
+    end
   end
 end
 
