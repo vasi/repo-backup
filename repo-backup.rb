@@ -116,7 +116,7 @@ class Source < Struct.new(:backup, :spec)
   # Fetch a full URI, handling redirects
   def fetch(uri)
     uri = URI(uri)
-    req = Net::HTTP::Get.new(uri)
+    req = Net::HTTP::Get.new(uri.to_s)
     headers.each { |k,v| req[k] = v }
 
     params = { :use_ssl => uri.scheme == 'https' }
