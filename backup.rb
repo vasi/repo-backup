@@ -272,6 +272,7 @@ class RepoBackup
         repo.backup
       end
     end
+    RepoBackup.log "Complete!"
   end
 end
 
