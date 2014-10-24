@@ -72,4 +72,5 @@ Todo
 License
 =====
 (C) 2014 Dave Vasilevsky, Evolving Web
-Availabe under the GNU General Public License version 2 or later
+
+Available under the GNU General Public License version 2 or later
