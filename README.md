@@ -65,6 +65,7 @@ Todo
 ====
 
 * Protect against hung connections, we should just timeout after too long. This might already happen!
+* Better permission options
 * Backup more info (forks, watchers, ...)
 * Add more services
 * Add tests
