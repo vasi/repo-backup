@@ -68,6 +68,7 @@ Todo
 * Better permission options
 * Easier configuration (eg: OAUTH)
 * Backup more info (forks, watchers, ...)
+* Backup other repos (starred?)
 * Add more services
 * Add tests
 
