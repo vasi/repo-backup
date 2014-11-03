@@ -1,5 +1,4 @@
 require 'net/http'
-require 'json'
 
 # A source of repos to backup
 class RepoBackup
