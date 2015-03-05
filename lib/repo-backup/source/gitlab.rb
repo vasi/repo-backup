@@ -10,7 +10,7 @@ class GitLab < Source
 
   class Repo < Source::Repo
     def ssh_uri; spec['ssh_url_to_repo']; end
-    def name; spec['path']; end
+    def name; spec['path_with_namespace']; end
   end
 
   def repo_data

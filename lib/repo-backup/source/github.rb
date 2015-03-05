@@ -12,10 +12,9 @@ class GitHub < Source
     WikiName = 'wiki.git'
 
     def ssh_uri; spec['ssh_url']; end
-    def fullname; spec['full_name']; end
 
     def fetch(file, path)
-      super(file, "repos/#{fullname}/#{path}")
+      super(file, "repos/#{name}/#{path}")
     end
 
     def backup_wiki

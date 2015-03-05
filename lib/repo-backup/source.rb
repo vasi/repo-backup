@@ -8,7 +8,7 @@ class Source < Struct.new(:backup, :spec)
   class Repo < Struct.new(:source, :spec)
     RepoName = 'repo.git'
 
-    def name; spec['name']; end
+    def name; spec['full_name']; end
     def git; source.git; end
 
     # Should be a unique ID for this repo
